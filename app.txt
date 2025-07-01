@@ -1,0 +1,174 @@
+from flask import Flask, render_template, jsonify, Response
+import serial
+import heapq
+import time
+import threading
+import json
+import queue
+
+app = Flask(_name_)
+
+# Initialize serial communication with Arduino Mega
+ser = serial.Serial('/dev/ttyACM0', 9600, timeout=1)  # Adjust port if needed
+
+# Queue to hold the latest parking data
+data_queue = queue.Queue(maxsize=1)
+
+# Graph representation of the parking area (Nodes and distances in meters)
+graph = {
+    "1": [("2", 4), ("4", 6)],
+    "2": [("5", 2), ("3", 3)],
+    "3": [("6", 1)],
+    "4": [("Slot 1", 0.5), ("Slot 2", 5)],
+    "5": [("Slot 3", 0.5), ("Slot 4", 3)],
+    "6": [("Slot 5", 0.5), ("Slot 6", 2)],
+}
+
+# Add slot nodes to the graph
+for i in range(1, 7):
+    graph[f"Slot {i}"] = []
+
+# Mapping Arduino sensor input (binary string) to slot names
+slot_mapping = {
+    0: "Slot 1",
+    1: "Slot 2",
+    2: "Slot 3",
+    3: "Slot 4",
+    4: "Slot 5",
+    5: "Slot 6",
+}
+
+def dijkstra(graph, start, available_slots):
+    pq = []
+    heapq.heappush(pq, (0, start))
+    distances = {node: float("inf") for node in graph}
+    distances[start] = 0
+    previous_nodes = {}
+
+    while pq:
+        current_distance, current_node = heapq.heappop(pq)
+        if current_node in available_slots:
+            path = []
+            while current_node in previous_nodes:
+                path.insert(0, current_node)
+                current_node = previous_nodes[current_node]
+            path.insert(0, start)
+            return path, current_distance
+
+        for neighbor, weight in graph.get(current_node, []):
+            if neighbor not in distances:
+                continue
+            new_distance = current_distance + weight
+            if new_distance < distances[neighbor]:
+                distances[neighbor] = new_distance
+                previous_nodes[neighbor] = current_node
+                heapq.heappush(pq, (new_distance, neighbor))
+
+    return None, float("inf")
+
+# Function to get parking slot status from Arduino sensors
+def get_parking_status():
+    ser.flush()
+    while True:
+        slot_data = ser.readline().decode().strip()
+        if len(slot_data) == 6 and all(c in "01" for c in slot_data):
+            break
+    available_slots = {slot_mapping[i] for i, status in enumerate(slot_data) if status == '1'}
+    return slot_data, available_slots
+
+# Process parking data and generate result
+def process_parking_data():
+    binary_string, available_slots = get_parking_status()
+
+    if not available_slots:
+        return {
+            "binary_string": binary_string,
+            "message": "No available parking slots!"
+        }
+
+    shortest_path, distance = dijkstra(graph, "1", available_slots)
+
+    if shortest_path:
+        recommended_slot = shortest_path[-1]
+        alternative_slots = list(available_slots - {recommended_slot})
+        return {
+            "binary_string": binary_string,
+            "recommended_slot": recommended_slot,
+            "distance": distance,
+            "shortest_path": shortest_path,
+            "alternative_slots": alternative_slots
+        }
+
+    return {
+        "binary_string": binary_string,
+        "message": "No available route found!"
+    }
+
+# Thread function to continuously read from Arduino and update the queue
+def arduino_reader():
+    last_data = None
+
+    while True:
+        current_data = process_parking_data()
+
+        # Only update the queue if the data has changed
+        if last_data is None or current_data["binary_string"] != last_data["binary_string"]:
+            # If queue is full, remove the old item
+            if data_queue.full():
+                try:
+                    data_queue.get_nowait()
+                except queue.Empty:
+                    pass
+
+            # Put the new data in the queue
+            try:
+                data_queue.put_nowait(current_data)
+                last_data = current_data
+            except queue.Full:
+                pass
+
+        # Small delay to prevent CPU hogging
+        time.sleep(0.1)
+
+@app.route('/')
+def index():
+    return render_template('index.html')
+
+@app.route('/get_parking_data')
+def get_parking_data():
+    # For initial data load or manual refresh
+    return jsonify(process_parking_data())
+
+@app.route('/stream_parking_data')
+def stream_parking_data():
+    def generate():
+        last_data = None
+
+        while True:
+            try:
+                # Try to get latest data from queue
+                try:
+                    current_data = data_queue.get(timeout=0.5)
+
+                    # Only send if data changed
+                    if last_data is None or current_data["binary_string"] != last_data["binary_string"]:
+                        data_str = json.dumps(current_data)
+                        yield f"event: parking_update\ndata: {data_str}\n\n"
+                        last_data = current_data
+                except queue.Empty:
+                    # Keep connection alive
+                    yield f": keepalive\n\n"
+            except GeneratorExit:
+                break
+
+            # Small delay to prevent CPU hogging
+            time.sleep(0.1)
+
+    return Response(generate(), mimetype='text/event-stream')
+
+if _name_ == '_main_':
+    # Start the Arduino reader thread
+    arduino_thread = threading.Thread(target=arduino_reader, daemon=True)
+    arduino_thread.start()
+
+    app.run(host='0.0.0.0', port=5000, debug=True, threaded=True)
