@@ -1,0 +1,533 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Smart Parking Guidance System</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        h1 {
+            color: #333;
+            text-align: center;
+        }
+        .container {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+        .status-container {
+            display: flex;
+            justify-content: space-between;
+            gap: 20px;
+        }
+        .status-box {
+            flex: 1;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            padding: 15px;
+            background-color: #f8f8f8;
+        }
+        .status-box h2 {
+            margin-top: 0;
+            color: #0275d8;
+            font-size: 18px;
+        }
+        .parking-map {
+            position: relative;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            padding: 10px;
+            height: 600px;
+            background-color: #f8f8f8;
+            overflow: hidden;
+        }
+        .map-container {
+            position: relative;
+            width: 100%;
+            height: 100%;
+        }
+        .slot {
+            position: absolute;
+            width: 70px;
+            height: 40px;
+            background-color: #e0f7fa;
+            border: 1px solid #80deea;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .dummy-slot {
+            position: absolute;
+            width: 70px;
+            height: 40px;
+            background-color: #eeeeee;
+            border: 1px solid #bdbdbd;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #757575;
+        }
+        .slot.occupied {
+            background-color: #ffcdd2;
+            border-color: #ef9a9a;
+        }
+        .slot.recommended {
+            background-color: #c8e6c9;
+            border-color: #81c784;
+            animation: pulse 2s infinite;
+        }
+        .node {
+            position: absolute;
+            width: 30px;
+            height: 30px;
+            border-radius: 50%;
+            background-color: #4fc3f7;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            color: white;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+        }
+        .path {
+            position: absolute;
+            background-color: #4fc3f7;
+            opacity: 0.5;
+        }
+        .path.highlight {
+            background-color: #ff5252 !important;
+            box-shadow: 0 0 10px rgba(255, 82, 82, 0.8);
+            animation: pathPulse 2s infinite;
+        }
+        .entrance {
+            position: absolute;
+            width: 120px;
+            height: 50px;
+            background-color: #bbdefb;
+            border: 1px solid #64b5f6;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            color: #1565c0;
+            font-size: 18px;
+        }
+        .legend {
+            display: flex;
+            gap: 15px;
+            margin-top: 15px;
+            justify-content: center;
+        }
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+        .legend-color {
+            width: 20px;
+            height: 20px;
+            border: 1px solid #888;
+        }
+        .available {
+            background-color: #e0f7fa;
+        }
+        .recommended-color {
+            background-color: #c8e6c9;
+        }
+        .occupied-color {
+            background-color: #ffcdd2;
+        }
+        .dummy-color {
+            background-color: #eeeeee;
+        }
+        @keyframes pulse {
+            0% { box-shadow: 0 0 0 0 rgba(76, 175, 80, 0.7); }
+            70% { box-shadow: 0 0 0 10px rgba(76, 175, 80, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(76, 175, 80, 0); }
+        }
+        @keyframes pathPulse {
+            0% { opacity: 0.6; }
+            50% { opacity: 1; }
+            100% { opacity: 0.6; }
+        }
+        #message {
+            text-align: center;
+            font-weight: bold;
+            color: #d9534f;
+            margin: 10px 0;
+        }
+        .distance-label {
+            position: absolute;
+            font-size: 14px;
+            font-weight: bold;
+            color: #4caf50;
+        }
+        .connection-status {
+            text-align: center;
+            margin: 10px 0;
+            padding: 5px;
+            border-radius: 4px;
+        }
+        .connected {
+            background-color: #dff0d8;
+            color: #3c763d;
+        }
+        .disconnected {
+            background-color: #f2dede;
+            color: #a94442;
+        }
+        .refresh-btn {
+            padding: 10px 20px;
+            background-color: #0275d8;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+            margin: 10px auto;
+            display: block;
+        }
+        .refresh-btn:hover {
+            background-color: #025aa5;
+        }
+        .parking-row {
+            position: absolute;
+            height: 60px;
+            border: 1px solid #ddd;
+            background-color: #f9f9f9;
+        }
+    </style>
+</head>
+<body>
+    <h1>Smart Parking Guidance System</h1>
+
+    <div class="container">
+        <div id="connectionStatus" class="connection-status">Connecting to server...</div>
+
+        <div class="status-container">
+            <div class="status-box">
+                <h2>Parking Status</h2>
+                <div id="statusInfo">
+                    <p>Loading parking information...</p>
+                </div>
+            </div>
+            <div class="status-box">
+                <h2>Navigation</h2>
+                <div id="navigationInfo">
+                    <p>Loading route information...</p>
+                </div>
+            </div>
+        </div>
+
+        <div id="message"></div>
+
+        <button class="refresh-btn" onclick="reconnectEventSource()">Reconnect</button>
+
+        <div class="parking-map">
+            <div class="map-container">
+                <!-- Parking lot structure -->
+                <div class="parking-row" style="top: 140px; left: 300px; width: 570px;"></div>
+                <div class="parking-row" style="top: 280px; left: 300px; width: 570px;"></div>
+                <div class="parking-row" style="top: 380px; left: 300px; width: 570px;"></div>
+                <div class="parking-row" style="top: 530px; left: 300px; width: 570px;"></div>
+
+                <!-- Entrance -->
+                <div class="entrance" style="top: 190px; left: 140px;">ENTRANCE</div>
+
+                <!-- Nodes -->
+                <div class="node" style="top: 200px; left: 310px;" id="node1">1</div>
+                <div class="node" style="top: 350px; left: 310px;" id="node2">2</div>
+                <div class="node" style="top: 510px; left: 310px;" id="node3">3</div>
+                <div class="node" style="top: 200px; left: 670px;" id="node4">4</div>
+                <div class="node" style="top: 350px; left: 530px;" id="node5">5</div>
+                <div class="node" style="top: 510px; left: 500px;" id="node6">6</div>
+
+                <!-- Slots -->
+                <div class="slot" id="slot1" style="top: 145px; left: 670px;">Slot 1</div>
+                <div class="slot" id="slot2" style="top: 245px; left: 820px;">Slot 2</div>
+                <div class="slot" id="slot3" style="top: 285px; left: 490px;">Slot 3</div>
+                <div class="slot" id="slot4" style="top: 385px; left: 660px;">Slot 4</div>
+                <div class="slot" id="slot5" style="top: 535px; left: 410px;">Slot 5</div>
+                <div class="slot" id="slot6" style="top: 445px; left: 580px;">Slot 6</div>
+
+                <!-- Dummy Slots -->
+                <div class="dummy-slot" style="top: 145px; left: 580px;">D1</div>
+                <div class="dummy-slot" style="top: 145px; left: 750px;">D2</div>
+                <div class="dummy-slot" style="top: 145px; left: 830px;">D3</div>
+                <div class="dummy-slot" style="top: 245px; left: 580px;">D4</div>
+                <div class="dummy-slot" style="top: 245px; left: 660px;">D5</div>
+                <div class="dummy-slot" style="top: 245px; left: 740px;">D6</div>
+                <div class="dummy-slot" style="top: 285px; left: 570px;">D7</div>
+                <div class="dummy-slot" style="top: 285px; left: 650px;">D8</div>
+                <div class="dummy-slot" style="top: 285px; left: 730px;">D9</div>
+                <div class="dummy-slot" style="top: 385px; left: 570px;">D10</div>
+                <div class="dummy-slot" style="top: 385px; left: 740px;">D11</div>
+                <div class="dummy-slot" style="top: 385px; left: 820px;">D12</div>
+                <div class="dummy-slot" style="top: 445px; left: 410px;">D13</div>
+                <div class="dummy-slot" style="top: 445px; left: 660px;">D14</div>
+                <div class="dummy-slot" style="top: 445px; left: 740px;">D15</div>
+                <div class="dummy-slot" style="top: 535px; left: 490px;">D16</div>
+                <div class="dummy-slot" style="top: 535px; left: 570px;">D17</div>
+                <div class="dummy-slot" style="top: 535px; left: 650px;">D18</div>
+
+                <!-- Distance labels -->
+                <div class="distance-label" style="top: 180px; left: 480px;">6 meter</div>
+                <div class="distance-label" style="top: 265px; left: 290px;">4 meter</div>
+                <div class="distance-label" style="top: 425px; left: 290px;">3 meter</div>
+                <div class="distance-label" style="top: 195px; left: 750px;">5 meter</div>
+                <div class="distance-label" style="top: 330px; left: 420px;">2 meter</div>
+                <div class="distance-label" style="top: 330px; left: 600px;">3 meter</div>
+                <div class="distance-label" style="top: 490px; left: 380px;">1 meter</div>
+                <div class="distance-label" style="top: 485px; left: 570px;">2 meter</div>
+
+                <!-- Paths will be added dynamically -->
+                <div id="paths"></div>
+            </div>
+
+            <div class="legend">
+                <div class="legend-item">
+                    <div class="legend-color available"></div>
+                    <span>Available</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-color recommended-color"></div>
+                    <span>Recommended</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-color occupied-color"></div>
+                    <span>Occupied</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-color dummy-color"></div>
+                    <span>Other</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Coordinates for drawing paths between nodes
+        const nodeCoordinates = {
+            "1": { x: 310, y: 200 },
+            "2": { x: 310, y: 350 },
+            "3": { x: 310, y: 510 },
+            "4": { x: 670, y: 200 },
+            "5": { x: 530, y: 350 },
+            "6": { x: 500, y: 510 },
+            "Slot 1": { x: 705, y: 165 },
+            "Slot 2": { x: 855, y: 265 },
+            "Slot 3": { x: 525, y: 305 },
+            "Slot 4": { x: 695, y: 405 },
+            "Slot 5": { x: 445, y: 555 },
+            "Slot 6": { x: 615, y: 465 }
+        };
+
+        // Graph representation matching the backend graph
+        const graph = {
+            "1": [["2", 4], ["4", 6]],
+            "2": [["5", 2], ["3", 3]],
+            "3": [["6", 1]],
+            "4": [["Slot 1", 0.5], ["Slot 2", 5]],
+            "5": [["Slot 3", 0.5], ["Slot 4", 3]],
+            "6": [["Slot 5", 0.5], ["Slot 6", 2]]
+        };
+
+        let eventSource;
+
+        // Function to initialize Server-Sent Events connection
+        function initEventSource() {
+            eventSource = new EventSource('/stream_parking_data');
+
+            // Connection opened
+            eventSource.onopen = function() {
+                const connectionStatus = document.getElementById('connectionStatus');
+                connectionStatus.textContent = 'Connected to server';
+                connectionStatus.className = 'connection-status connected';
+            };
+
+            // Receive message from server
+            eventSource.addEventListener('parking_update', function(event) {
+                try {
+                    const data = JSON.parse(event.data);
+                    updateUI(data);
+                } catch (error) {
+                    console.error('Error parsing event data:', error);
+                }
+            });
+
+            // Error handling
+            eventSource.onerror = function() {
+                const connectionStatus = document.getElementById('connectionStatus');
+                connectionStatus.textContent = 'Connection lost. Trying to reconnect...';
+                connectionStatus.className = 'connection-status disconnected';
+                
+                // In case of error, show demo data
+                showDemoData();
+            };
+        }
+
+        // Function to reconnect EventSource
+        function reconnectEventSource() {
+            if (eventSource) {
+                eventSource.close();
+            }
+            initEventSource();
+        }
+
+        // Function to draw a path between two nodes
+        function drawPath(node1, node2, highlight = false) {
+            const start = nodeCoordinates[node1];
+            const end = nodeCoordinates[node2];
+
+            if (!start || !end) return;
+
+            const dx = end.x - start.x;
+            const dy = end.y - start.y;
+            const length = Math.sqrt(dx * dx + dy * dy);
+            const angle = Math.atan2(dy, dx) * 180 / Math.PI;
+
+            const pathDiv = document.createElement('div');
+            pathDiv.className = 'path' + (highlight ? ' highlight' : '');
+            pathDiv.style.width = `${length}px`;
+            pathDiv.style.height = highlight ? '8px' : '5px';
+            pathDiv.style.left = `${start.x}px`;
+            pathDiv.style.top = `${start.y}px`;
+            pathDiv.style.transformOrigin = '0 0';
+            pathDiv.style.transform = `rotate(${angle}deg)`;
+
+            if (highlight) {
+                pathDiv.style.backgroundColor = '#ff5252';
+                pathDiv.style.opacity = '0.8';
+                pathDiv.style.zIndex = '10';
+            }
+
+            document.getElementById('paths').appendChild(pathDiv);
+        }
+
+        // Function to clear all paths
+        function clearPaths() {
+            document.getElementById('paths').innerHTML = '';
+        }
+
+        // Function to highlight the recommended path
+        function highlightPath(path) {
+            clearPaths();
+
+            // Draw all connections in the graph
+            const connections = [];
+            
+            // Extract connections from the graph
+            for (const [node, neighbors] of Object.entries(graph)) {
+                for (const [neighbor, _] of neighbors) {
+                    connections.push([node, neighbor]);
+                }
+            }
+
+            connections.forEach(([node1, node2]) => {
+                drawPath(node1, node2);
+            });
+
+            // Highlight the recommended path
+            if (path && path.length > 1) {
+                for (let i = 0; i < path.length - 1; i++) {
+                    drawPath(path[i], path[i + 1], true);
+                }
+            }
+        }
+
+        // Function to update slot status
+        function updateSlotStatus(binaryString, recommendedSlot) {
+            for (let i = 0; i < 6; i++) {
+                const slotElement = document.getElementById(`slot${i+1}`);
+
+                if (binaryString[i] === '0') {
+                    slotElement.classList.add('occupied');
+                    slotElement.classList.remove('available', 'recommended');
+                } else {
+                    slotElement.classList.add('available');
+                    slotElement.classList.remove('occupied');
+
+                    if (recommendedSlot === `Slot ${i+1}`) {
+                        slotElement.classList.add('recommended');
+                    } else {
+                        slotElement.classList.remove('recommended');
+                    }
+                }
+            }
+        }
+
+        // Function to update the UI with new data
+        function updateUI(data) {
+            const statusInfo = document.getElementById('statusInfo');
+            const navigationInfo = document.getElementById('navigationInfo');
+            const messageElement = document.getElementById('message');
+
+            // Clear previous data
+            statusInfo.innerHTML = '';
+            navigationInfo.innerHTML = '';
+            messageElement.textContent = '';
+
+            if (data.message) {
+                messageElement.textContent = data.message;
+
+                // Update the binary status display
+                statusInfo.innerHTML = `
+                    <p><strong>Binary Status:</strong> ${data.binary_string}</p>
+                    <p><strong>Available Slots:</strong> None</p>
+                `;
+
+                updateSlotStatus(data.binary_string);
+                clearPaths();
+                return;
+            }
+
+            // Update status info
+            statusInfo.innerHTML = `
+                <p><strong>Binary Status:</strong> ${data.binary_string}</p>
+                <p><strong>Available Slots:</strong>
+                    ${data.recommended_slot}${data.alternative_slots.length > 0 ? ', ' + data.alternative_slots.join(', ') : ''}
+                </p>
+            `;
+
+            // Update navigation info
+            navigationInfo.innerHTML = `
+                <p><strong>Recommended Slot:</strong> ${data.recommended_slot}</p>
+                <p><strong>Distance:</strong> ${data.distance} meters</p>
+                <p><strong>Path:</strong> ${data.shortest_path.join(' → ')}</p>
+            `;
+
+            // Update the map
+            updateSlotStatus(data.binary_string, data.recommended_slot);
+            highlightPath(data.shortest_path);
+        }
+
+        // Function to show demo data when server connection fails
+        function showDemoData() {
+            const demoData = {
+                binary_string: "110101",
+                recommended_slot: "Slot 3",
+                alternative_slots: ["Slot 1", "Slot 5"],
+                distance: 8.5,
+                shortest_path: ["1", "2", "5", "Slot 3"]
+            };
+            updateUI(demoData);
+        }
+
+        // Initialize EventSource when the page loads
+        document.addEventListener('DOMContentLoaded', function() {
+            // Show initial demo data
+            showDemoData();
+            
+            // Initialize EventSource for real server communication
+            initEventSource();
+        });
+    </script>
+</body>
+</html>
